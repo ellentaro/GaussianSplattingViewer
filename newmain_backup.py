@@ -120,39 +120,6 @@ def window_resize_callback(window, width, height):
     g_camera.update_resolution(height, width)  # カメラの解像度を更新
     g_renderer.set_render_reso(width, height)  # レンダラーの解像度を更新
 
-#チェーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーンジ
-def generate_spherical_camera_positions(radius, num_latitude, num_longitude):
-    """球面上の均等な視点座標を生成する関数
-    Args:
-        radius (float): 球面の半径
-        num_latitude (int): 緯度の分割数
-        num_longitude (int): 経度の分割数
-    Returns:
-        List[Tuple[float, float, float]]: カメラ位置のリスト
-    """
-    positions = []
-    for i in range(num_latitude):
-        lat = np.pi * (i + 0.5) / num_latitude  # 緯度角（0 ~ π）
-        for j in range(num_longitude):
-            lon = 2 * np.pi * j / num_longitude  # 経度角（0 ~ 2π）
-            x = radius * np.sin(lat) * np.cos(lon)
-            y = radius * np.sin(lat) * np.sin(lon)
-            z = radius * np.cos(lat)
-            positions.append((x, y, z))
-    return positions
-
-def set_camera_position(camera, position):
-    """カメラ位置を設定する
-    Args:
-        camera (util.Camera): カメラオブジェクト
-        position (Tuple[float, float, float]): カメラの新しい位置（x, y, z）
-    """
-    camera.position = position
-    camera.look_at([0, 0, 0])  # カメラが原点を見るように設定
-    camera.is_pose_dirty = True  # 更新フラグをセット
-
-#チェーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーンジ
-
 # メイン関数
 def main():
     global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, \
@@ -192,41 +159,49 @@ def main():
     gaussians = util_gau.load_ply(r"C:\Users\81803\research\output\oga\oga_point_cloud.ply")  # PLYファイルをロード
     update_activated_renderer_state(gaussians)  # レンダラーの状態を更新
 
-#チェーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーンジ
-  # 球面上の視点リストを生成
-    radius = 5.0  # 球面の半径
-    num_latitude = 10  # 緯度分割数
-    num_longitude = 20  # 経度分割数
-    camera_positions = generate_spherical_camera_positions(radius, num_latitude, num_longitude)
+    # 出力設定
+    frame_count = 0  # フレームカウンタ
+    image_output_dir = "output_images"  # 出力画像のディレクトリ
+    os.makedirs(image_output_dir, exist_ok=True)  # ディレクトリが存在しなければ作成
 
-    # 出力ディレクトリの作成
-    frame_count = 0
-    image_output_dir = "output_images_sphere"
-    os.makedirs(image_output_dir, exist_ok=True)
+    while not glfw.window_should_close(window):  # ウィンドウが閉じられるまでループ
+        glfw.poll_events()  # イベントのポーリング
+        impl.process_inputs()  # ImGuiの入力処理
+        imgui.new_frame()  # ImGuiの新しいフレームを開始
 
-    for position in camera_positions:
-        # カメラ位置を更新
-        set_camera_position(g_camera, position)
+        # バッファのクリア
+        gl.glClearColor(0, 0, 0, 1.0)  # 背景色を黒に設定
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT)  # カラーバッファをクリア
 
-        # カメラの位置・内部パラメータを更新
+        # カメラの位置とパラメータを遅延更新
         update_camera_pose_lazy()
         update_camera_intrin_lazy()
 
         # シーンを描画
-        gl.glClearColor(0, 0, 0, 1.0)
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT)
         g_renderer.draw()
 
-        # フレームを保存
-        width, height = glfw.get_framebuffer_size(window)
-        bufferdata = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)
-        img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)
-        image_path = os.path.join(image_output_dir, f"frame_{frame_count:04d}.png")
-        imageio.imwrite(image_path, img[::-1])
-        print(f"Saved: {image_path}")
+        # カメラの自動調整（回転など）
+        g_camera.yaw += 0.01  # カメラのヨー角を少しずつ変化
+        g_camera.is_pose_dirty = True
+        update_camera_pose_lazy()
+        g_camera.is_intrin_dirty = True
+        update_camera_intrin_lazy()
 
-        frame_count += 1   
-#チェーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーーンジ
+        # レンダリングした画像を保存
+        if frame_count % 100 == 0:  # 100フレームごとに保存
+            width, height = glfw.get_framebuffer_size(window)
+            bufferdata = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)  # ピクセルデータを取得
+            img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)  # 画像データに変換
+            image_path = os.path.join(image_output_dir, f"frame_{frame_count:04d}.png")  # 出力パスを生成
+            imageio.imwrite(image_path, img[::-1])  # 上下反転して保存
+            print(f"Saved: {image_path}")
+
+        # UIのレンダリング（オプション）
+        imgui.render()
+        impl.render(imgui.get_draw_data())
+        glfw.swap_buffers(window)  # バッファを入れ替え
+
+        frame_count += 1  # フレームカウンタをインクリメント
 
     impl.shutdown()  # ImGuiのリソースを解放
     glfw.terminate()  # GLFWを終了

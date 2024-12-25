@@ -32,7 +32,27 @@ class Camera:
         self.zoom_sensitivity = 0.08
         self.roll_sensitivity = 0.03
         self.target_dist = 3.
-    
+        
+#ちぇーーんじ
+    def look_at(self, target_position):
+            """
+            指定したターゲット位置を向くようにカメラの向きを設定する。
+            :param target_position: ターゲットの3D位置 (numpy array)
+            """
+            # ターゲット位置からカメラ位置への方向を計算
+            forward = target_position - self.position
+            if np.linalg.norm(forward) == 0:
+                raise ValueError("Camera position and target position cannot be the same.")
+            forward /= np.linalg.norm(forward)
+
+            # 右方向 (side vector) を計算
+            right = np.cross(self.up, forward)
+            right /= np.linalg.norm(right)
+
+            # 新しい上方向ベクトルを計算
+            self.up = np.cross(forward, right)
+            self.target = target_position
+#ちぇーーんじ
     def _global_rot_mat(self):
         x = np.array([1, 0, 0])
         z = np.cross(x, self.up)
