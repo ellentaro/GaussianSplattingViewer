@@ -11,7 +11,7 @@ class Camera:
         self.h = h
         self.w = w
         self.fovy = np.pi / 2
-        self.position = np.array([0.0, 0.0, 3.0]).astype(np.float32)
+        self.position = np.array([0.0, 0.0, 1.0]).astype(np.float32)
         self.target = np.array([0.0, 0.0, 0.0]).astype(np.float32)
         self.up = np.array([0.0, -1.0, 0.0]).astype(np.float32)
         self.yaw = -np.pi / 2
@@ -31,9 +31,9 @@ class Camera:
         self.trans_sensitivity = 0.01
         self.zoom_sensitivity = 0.08
         self.roll_sensitivity = 0.03
-        self.target_dist = 3.
-        
-#ちぇーーんじ
+        self.target_dist = 1.
+
+#ちぇーーんじ target positiion をnp.arrayで定義する
     def look_at(self, target_position):
             """
             指定したターゲット位置を向くようにカメラの向きを設定する。
@@ -61,6 +61,7 @@ class Camera:
         return np.stack([x, self.up, z], axis=-1)
 
     def get_view_matrix(self):
+        #print(type(self.position))
         return np.array(glm.lookAt(self.position, self.target, self.up))
 
     def get_project_matrix(self):

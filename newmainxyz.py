@@ -165,55 +165,50 @@ def main():
 
     # 出力設定
     frame_count = 0  # フレームカウンタ
-    image_output_dir = "output_images_oga20250108"  # 出力画像のディレクトリ
+    image_output_dir = "output_images_oga20250108xyz"  # 出力画像のディレクトリ
     #image_output_dir = "output_images"  # 出力画像のディレクトリ
 
     os.makedirs(image_output_dir, exist_ok=True)  # ディレクトリが存在しなければ作成
 
-    thetas = np.linspace(0,np.pi,10) #天頂角
-    phis = np.linspace(-np.pi/2,np.pi/2,10) #方位角
+    theta=np.pi/2
+    phi=np.pi/2
 
-    for phi in phis:
-        for theta in thetas:
+    glfw.poll_events()  # イベントのポーリング
+    impl.process_inputs()  # ImGuiの入力処理
+    imgui.new_frame()  # ImGuiの新しいフレームを開始
 
-            glfw.poll_events()  # イベントのポーリング
-            impl.process_inputs()  # ImGuiの入力処理
-            imgui.new_frame()  # ImGuiの新しいフレームを開始
+    # バッファのクリア
+    gl.glClearColor(0, 0, 0, 1.0)  # 背景色を黒に設定
+    gl.glClear(gl.GL_COLOR_BUFFER_BIT)  # カラーバッファをクリア
 
-            # バッファのクリア
-            gl.glClearColor(0, 0, 0, 1.0)  # 背景色を黒に設定
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT)  # カラーバッファをクリア
+    # カメラの位置とパラメータを遅延更新
+    # update_camera_pose_lazy()
+    #update_camera_intrin_lazy()
+    
+    g_camera.position = g_camera.target_dist*np.array([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).astype(np.float32) #target_distはutilにある
+    
+    
+    g_camera.is_pose_dirty = True
+    update_camera_pose_lazy()
+    g_camera.is_intrin_dirty = True
+    #update_camera_intrin_lazy()
+    update_activated_renderer_state(gaussians)
+    g_renderer.draw()
 
-            # カメラの位置とパラメータを遅延更新
-          # update_camera_pose_lazy()
-            #update_camera_intrin_lazy()
-            
-            g_camera.position = g_camera.target_dist*np.array([np.sin(theta)*np.cos(phi),np.sin(theta)*np.sin(phi),np.cos(theta)]).astype(np.float32) #target_distはutilにある
-            
-            
-            g_camera.is_pose_dirty = True
-            update_camera_pose_lazy()
-            g_camera.is_intrin_dirty = True
-            #update_camera_intrin_lazy()
-            update_activated_renderer_state(gaussians)
-            g_renderer.draw()
-        
 
-            # レンダリングした画像を保存
-            #if frame_count % 1 == 0:  # 100フレームごとに保存
-            width, height = glfw.get_framebuffer_size(window)
-            bufferdata = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)  # ピクセルデータを取得
-            img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)  # 画像データに変換
-            image_path = os.path.join(image_output_dir, f"theta={round(theta,3)},phi={round(phi,3)}.png")  # 出力パスを生成
-            imageio.imwrite(image_path, img[::-1])  # 上下反転して保存
-            print(f"Saved: {image_path}")
-            #カメラポジションも保存する
-            # UIのレンダリング（オプション）
-            imgui.render()
-            impl.render(imgui.get_draw_data())
-            glfw.swap_buffers(window)  # バッファを入れ替え
-
-            frame_count += 1  # フレームカウンタをインクリメント
+    # レンダリングした画像を保存
+    #if frame_count % 1 == 0:  # 100フレームごとに保存
+    width, height = glfw.get_framebuffer_size(window)
+    bufferdata = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)  # ピクセルデータを取得
+    img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)  # 画像データに変換
+    image_path = os.path.join(image_output_dir, f"theta={round(theta,3)},phi={round(phi,3)}.png")  # 出力パスを生成
+    imageio.imwrite(image_path, img[::-1])  # 上下反転して保存
+    print(f"Saved: {image_path}")
+    #カメラポジションも保存する
+    # UIのレンダリング（オプション）
+    imgui.render()
+    impl.render(imgui.get_draw_data())
+    glfw.swap_buffers(window)  # バッファを入れ替え
 
     impl.shutdown()  # ImGuiのリソースを解放
     glfw.terminate()  # GLFWを終了
