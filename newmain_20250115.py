@@ -5,6 +5,7 @@ from imgui.integrations.glfw import GlfwRenderer  # ImGuiとGLFWの統合モジ�
 import imgui  # グラフィカルUIライブラリ
 import numpy as np  # 数値計算用ライブラリ
 import util  # カスタムユーティリティモジュール（ユーザー定義）
+import util_gau
 import imageio  # 画像の入出力ライブラリ
 import util_gau  # ガウスデータ関連のカスタムモジュール
 import tkinter as tk  # ファイル選択ダイアログ用GUIライブラリ
@@ -128,7 +129,7 @@ def main():
     global g_camera, g_renderer, g_renderer_list, g_renderer_idx, g_scale_modifier, g_auto_sort, \
         g_show_control_win, g_show_help_win, g_show_camera_win, \
         g_render_mode, g_render_mode_tables
-
+        
     imgui.create_context()
     if args.hidpi:
         imgui.get_io().font_global_scale = 1.5
@@ -136,15 +137,15 @@ def main():
     impl = GlfwRenderer(window)
     root = tk.Tk()  # used for file dialog
     root.withdraw()
-
+    
     glfw.set_cursor_pos_callback(window, cursor_pos_callback)
     glfw.set_mouse_button_callback(window, mouse_button_callback)
     glfw.set_scroll_callback(window, wheel_callback)
     glfw.set_key_callback(window, key_callback)
-
+    
     glfw.set_window_size_callback(window, window_resize_callback)
 
-    # Init renderer
+    # init renderer
     g_renderer_list[BACKEND_OGL] = OpenGLRenderer(g_camera.w, g_camera.h)
     try:
         from renderer_cuda import CUDARenderer
@@ -156,56 +157,186 @@ def main():
 
     g_renderer = g_renderer_list[g_renderer_idx]
 
-    # Load Gaussian data
+    # gaussian data
     gaussians = util_gau.naive_gaussian()
     update_activated_renderer_state(gaussians)
-
-    # Settings
-    frame_count = 0
-    image_output_dir = "output_images"
-    os.makedirs(image_output_dir, exist_ok=True)
-
+    
+    # settings
     while not glfw.window_should_close(window):
         glfw.poll_events()
         impl.process_inputs()
         imgui.new_frame()
-
+        
         gl.glClearColor(0, 0, 0, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT)
 
-        # Update camera pose and intrinsics lazily
         update_camera_pose_lazy()
         update_camera_intrin_lazy()
-
-        # Render the scene
+        
         g_renderer.draw()
 
-        # Save the rendered image
-        if frame_count % 10 == 0:  # Save every 10th frame
-            width, height = glfw.get_framebuffer_size(window)
-            bufferdata = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)
-            img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)
-            image_path = os.path.join(image_output_dir, f"frame_{frame_count:04d}.png")
-            imageio.imwrite(image_path, img[::-1])
-            print(f"Saved: {image_path}")
+        # imgui ui
+        if imgui.begin_main_menu_bar():
+            if imgui.begin_menu("Window", True):
+                clicked, g_show_control_win = imgui.menu_item(
+                    "Show Control", None, g_show_control_win
+                )
+                clicked, g_show_help_win = imgui.menu_item(
+                    "Show Help", None, g_show_help_win
+                )
+                clicked, g_show_camera_win = imgui.menu_item(
+                    "Show Camera Control", None, g_show_camera_win
+                )
+                imgui.end_menu()
+            imgui.end_main_menu_bar()
+        
+        if g_show_control_win:
+            if imgui.begin("Control", True):
+                # rendering backend
+                changed, g_renderer_idx = imgui.combo("backend", g_renderer_idx, ["ogl", "cuda"][:len(g_renderer_list)])
+                if changed:
+                    g_renderer = g_renderer_list[g_renderer_idx]
+                    update_activated_renderer_state(gaussians)
 
-        # Render the UI (optional)
+                imgui.text(f"fps = {imgui.get_io().framerate:.1f}")
+
+                changed, g_renderer.reduce_updates = imgui.checkbox(
+                        "reduce updates", g_renderer.reduce_updates,
+                    )
+
+                imgui.text(f"# of Gaus = {len(gaussians)}")
+                if imgui.button(label='open ply'):
+                    file_path = filedialog.askopenfilename(title="open ply",
+                        initialdir="C:\\Users\\MSI_NB\\Downloads\\viewers",
+                        filetypes=[('ply file', '.ply')]
+                        )
+                    if file_path:
+                        try:
+                            gaussians = util_gau.load_ply(file_path)
+                            g_renderer.update_gaussian_data(gaussians)
+                            g_renderer.sort_and_update(g_camera)
+                        except RuntimeError as e:
+                            pass
+                
+                # camera fov
+                changed, g_camera.fovy = imgui.slider_float(
+                    "fov", g_camera.fovy, 0.001, np.pi - 0.001, "fov = %.3f"
+                )
+                g_camera.is_intrin_dirty = changed
+                update_camera_intrin_lazy()
+                
+                # scale modifier
+                changed, g_scale_modifier = imgui.slider_float(
+                    "", g_scale_modifier, 0.1, 10, "scale modifier = %.3f"
+                )
+                imgui.same_line()
+                if imgui.button(label="reset"):
+                    g_scale_modifier = 1.
+                    changed = True
+                    
+                if changed:
+                    g_renderer.set_scale_modifier(g_scale_modifier)
+                
+                # render mode
+                changed, g_render_mode = imgui.combo("shading", g_render_mode, g_render_mode_tables)
+                if changed:
+                    g_renderer.set_render_mod(g_render_mode - 4)
+                
+                # sort button
+                if imgui.button(label='sort Gaussians'):
+                    g_renderer.sort_and_update(g_camera)
+                imgui.same_line()
+                changed, g_auto_sort = imgui.checkbox(
+                        "auto sort", g_auto_sort,
+                    )
+                if g_auto_sort:
+                    g_renderer.sort_and_update(g_camera)
+                
+                if imgui.button(label='save image'):
+                    width, height = glfw.get_framebuffer_size(window)
+                    nrChannels = 3;
+                    stride = nrChannels * width;
+                    stride += (4 - stride % 4) if stride % 4 else 0
+                    gl.glPixelStorei(gl.GL_PACK_ALIGNMENT, 4)
+                    gl.glReadBuffer(gl.GL_FRONT)
+                    bufferdata = gl.glReadPixels(0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE)
+                    img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)
+                    imageio.imwrite("save.png", img[::-1])
+                    # save intermediate information
+                    # np.savez(
+                    #     "save.npz",
+                    #     gau_xyz=gaussians.xyz,
+                    #     gau_s=gaussians.scale,
+                    #     gau_rot=gaussians.rot,
+                    #     gau_c=gaussians.sh,
+                    #     gau_a=gaussians.opacity,
+                    #     viewmat=g_camera.get_view_matrix(),
+                    #     projmat=g_camera.get_project_matrix(),
+                    #     hfovxyfocal=g_camera.get_htanfovxy_focal()
+                    # )
+                imgui.end()
+
+        if g_show_camera_win:
+            if imgui.button(label='rot 180'):
+                g_camera.flip_ground()
+
+            changed, g_camera.target_dist = imgui.slider_float(
+                    "t", g_camera.target_dist, 1., 8., "target dist = %.3f"
+                )
+            if changed:
+                g_camera.update_target_distance()
+
+            changed, g_camera.rot_sensitivity = imgui.slider_float(
+                    "r", g_camera.rot_sensitivity, 0.002, 0.1, "rotate speed = %.3f"
+                )
+            imgui.same_line()
+            if imgui.button(label="reset r"):
+                g_camera.rot_sensitivity = 0.02
+
+            changed, g_camera.trans_sensitivity = imgui.slider_float(
+                    "m", g_camera.trans_sensitivity, 0.001, 0.03, "move speed = %.3f"
+                )
+            imgui.same_line()
+            if imgui.button(label="reset m"):
+                g_camera.trans_sensitivity = 0.01
+
+            changed, g_camera.zoom_sensitivity = imgui.slider_float(
+                    "z", g_camera.zoom_sensitivity, 0.001, 0.05, "zoom speed = %.3f"
+                )
+            imgui.same_line()
+            if imgui.button(label="reset z"):
+                g_camera.zoom_sensitivity = 0.01
+
+            changed, g_camera.roll_sensitivity = imgui.slider_float(
+                    "ro", g_camera.roll_sensitivity, 0.003, 0.1, "roll speed = %.3f"
+                )
+            imgui.same_line()
+            if imgui.button(label="reset ro"):
+                g_camera.roll_sensitivity = 0.03
+
+        if g_show_help_win:
+            imgui.begin("Help", True)
+            imgui.text("Open Gaussian Splatting PLY file \n  by click 'open ply' button")
+            imgui.text("Use left click & move to rotate camera")
+            imgui.text("Use right click & move to translate camera")
+            imgui.text("Press Q/E to roll camera")
+            imgui.text("Use scroll to zoom in/out")
+            imgui.text("Use control panel to change setting")
+            imgui.end()
+        
         imgui.render()
         impl.render(imgui.get_draw_data())
         glfw.swap_buffers(window)
-
-        frame_count += 1
 
     impl.shutdown()
     glfw.terminate()
 
 
-# エントリーポイント
 if __name__ == "__main__":
     global args
-    parser = argparse.ArgumentParser(description="NeUVF editor with optional HiDPI support.")  # コマンドライン引数の設定
-    parser.add_argument("--hidpi", action="store_true", help="Enable HiDPI scaling for the interface.")  # HiDPIスケーリングオプション
-    args = parser.parse_args()  # 引数をパース
+    parser = argparse.ArgumentParser(description="NeUVF editor with optional HiDPI support.")
+    parser.add_argument("--hidpi", action="store_true", help="Enable HiDPI scaling for the interface.")
+    args = parser.parse_args()
 
-    main()  # メイン関数を実行
+    main()
 

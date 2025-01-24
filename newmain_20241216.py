@@ -188,8 +188,8 @@ def main():
         # 左ボタンを押しながら、秒かけて座標(,)にマウスをドラッグ
         #pyautogui.dragTo(495, 540, duration=1, button="left")
         
-        g_camera.position = next_position
-        next_position = g_camera.position + np.array([0.0,0.0,1.0]).astype(np.float32)
+        #g_camera.position = next_position
+        #next_position = g_camera.position + np.array([0.0,0.0,1.0]).astype(np.float32)
         
         g_camera.is_pose_dirty = True
         update_camera_pose_lazy()
@@ -199,10 +199,6 @@ def main():
         g_renderer.draw()
 
         
-        print(g_camera.position.size)
-        print(next_position.size)
-    
-
         # レンダリングした画像を保存
         if frame_count % 1 == 0:  # 100フレームごとに保存
             width, height = glfw.get_framebuffer_size(window)
